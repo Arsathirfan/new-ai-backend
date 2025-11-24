@@ -14,7 +14,7 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.
 class PromptRequest(BaseModel):
     prompt: str
 
-@app.post("/api/generate_python")
+@app.post("/generate")
 def generate_python(req: PromptRequest):
     headers = {"Content-Type": "application/json"}
     payload = {
@@ -33,6 +33,6 @@ def generate_python(req: PromptRequest):
     else:
         return {"error": "Gemini API call failed", "details": response.text}
 
-@app.get("/api")
+@app.get("/test")
 def root():
     return {"message": "Python FastAPI endpoint active!"}
