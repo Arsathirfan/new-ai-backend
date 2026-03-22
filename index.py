@@ -2,15 +2,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 import os
-import json
 
 app = FastAPI()
 
 # Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# The latest flagship model as of March 2026
-MODEL_ID = "gemini-3-flash-preview"
+# Stable Model ID for the 2.5 series
+MODEL_ID = "gemini-2.5-flash"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:generateContent?key={GEMINI_API_KEY}"
 
 class PromptRequest(BaseModel):
@@ -19,57 +18,61 @@ class PromptRequest(BaseModel):
 @app.post("/generate")
 def generate_ai_content(req: PromptRequest):
     if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY environment variable is not set")
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not set in environment")
 
     headers = {"Content-Type": "application/json"}
     
-    # Gemini 3 Payload Structure
-    # Note: Use "LOW" for speed, "HIGH" for complex reasoning
+    # CORRECT PAYLOAD for Gemini 2.5 Flash
+    # thinking_budget is an integer: 0 (off), -1 (auto), or a specific token count (e.g. 1024)
     payload = {
         "contents": [
             {
-                "role": "user",
                 "parts": [{"text": req.prompt}]
             }
         ],
-        "generationConfig": {
-            "thinking_level": "LOW",  # Controls reasoning depth vs latency
-            "temperature": 0.7,
-            "maxOutputTokens": 2048
+        "generation_config": {
+            "thinking_config": {
+                "include_thoughts": True,  # Allows you to see the reasoning in the raw response
+                "thinking_budget": 1024    # Number of tokens dedicated to 'thinking'
+            },
+            "temperature": 1.0,
+            "max_output_tokens": 4096
         }
     }
 
     try:
         response = requests.post(GEMINI_URL, headers=headers, json=payload)
         
-        # Specific handler for Quota (429) or Bad Request (400)
+        # Error handling for API issues
         if response.status_code != 200:
-            error_msg = f"API Error {response.status_code}: {response.text}"
-            return {"error": "Gemini API call failed", "details": error_msg}
+            return {
+                "error": f"API Error {response.status_code}", 
+                "details": response.json()
+            }
 
         data = response.json()
         
-        # Safe extraction of the text response
+        # Parsing logic: Extracting the final response text
         candidates = data.get("candidates", [])
         if candidates:
-            content = candidates[0].get("content", {})
-            parts = content.get("parts", [])
-            if parts:
-                ai_text = parts[0].get("text", "")
-                return {
-                    "model": MODEL_ID,
-                    "response": ai_text
-                }
+            parts = candidates[0].get("content", {}).get("parts", [])
+            
+            # The 'text' part is usually the final answer
+            ai_text = ""
+            for part in parts:
+                if "text" in part:
+                    ai_text = part["text"]
+            
+            return {
+                "model": MODEL_ID,
+                "response": ai_text
+            }
         
         return {"error": "Model returned an empty response", "raw": data}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/test")
 def root():
-    return {
-        "status": "online",
-        "model": MODEL_ID,
-        "message": "FastAPI with Gemini 3 Flash is active."
-    }
+    return {"message": f"FastAPI active using {MODEL_ID}"}
